@@ -5,246 +5,188 @@ document.addEventListener('DOMContentLoaded', function() {
     const analyzeBtn = document.getElementById('analyze-btn');
     const fixBtn = document.getElementById('fix-btn');
     const resultModal = document.getElementById('result-modal');
-    const fixedCode = document.getElementById('fixed-code');
+    const fixedCodeElement = document.getElementById('fixed-code');
     const copyBtn = document.getElementById('copy-btn');
     const closeModalBtn = document.getElementById('close-modal-btn');
     const closeModalX = document.querySelector('.close-modal');
     
     // Common JavaScript errors and their fixes
-    const commonErrors = [
+    const errorPatterns = [
         {
-            pattern: /(\w+)\s*=(?!=)\s*([^;]*?)(?!\s*;)$/gm,
+            regex: /(\w+)\s*=\s*([^;]*?)(?!\s*;)$/gm,
             message: "Missing semicolon at the end of statement",
             fix: (match) => `${match};`
         },
         {
-            pattern: /if\s*\((.+?)\)\s*(.+?);(?!\s*\{)/g,
-            message: "If statement without curly braces",
-            fix: (match, condition, statement) => `if (${condition}) { ${statement}; }`
+            regex: /console\.log\(([^)]*?)(?<!\))$/gm,
+            message: "Unclosed console.log parenthesis",
+            fix: (match) => `${match})`
         },
         {
-            pattern: /(\w+)\s*=\s*(.+)(?<!\);)$/gm,
-            message: "Missing semicolon after assignment",
-            fix: (match) => match.endsWith(';') ? match : `${match};`
-        },
-        {
-            pattern: /const\s+(\w+)\s*=\s*([^;]*?)\s*;\s*\1\s*=\s*/g,
+            regex: /const\s+(\w+)\s*=\s*([^;]*);(?:[\s\n]*)\1\s*=/,
             message: "Cannot reassign constant variable",
             fix: (match) => match.replace(/const\s+/, 'let ')
         },
         {
-            pattern: /\b(cosnt|conts|cnost)\b/g,
+            regex: /\b(cosnt|conts|cnost)\b/g,
             message: "Typo in 'const' keyword",
             fix: (match) => "const"
         },
         {
-            pattern: /\b(functoin|fucntion|funtion)\b/g,
-            message: "Typo in 'function' keyword",
-            fix: (match) => "function"
+            regex: /\.innerHtml\b/g,
+            message: "Did you mean 'innerHTML'?",
+            fix: (match) => ".innerHTML"
         },
         {
-            pattern: /\b(docuemnt|documnet)\b/g,
+            regex: /\bdocuemnt\b|\bdocumnet\b/g,
             message: "Typo in 'document' object",
             fix: (match) => "document"
-        },
-        {
-            pattern: /([a-zA-Z_$][a-zA-Z0-9_$]*\s*)\(\s*\)\s*{(?!\s*return)/g,
-            message: "Function missing return statement",
-            severity: "warning"
-        },
-        {
-            pattern: /(["'])(?:(?=(\\?))\2.)*?\1/g,
-            check: (match, code) => {
-                // Check for string quotes mismatch
-                return (match.startsWith('"') && !match.endsWith('"')) || 
-                       (match.startsWith("'") && !match.endsWith("'"));
-            },
-            message: "Unclosed string literal",
-            severity: "error"
-        },
-        {
-            pattern: /console\.log\(([^)]*)(?<!\))(;?)$/gm,
-            message: "Unclosed console.log parenthesis",
-            fix: (match, content) => `console.log(${content})`
-        },
-        {
-            pattern: /{[^{}]*$/gm,
-            message: "Unclosed curly brace",
-            severity: "error"
-        },
-        {
-            pattern: /\([^()]*$/gm,
-            message: "Unclosed parenthesis",
-            severity: "error"
         }
     ];
 
-    // Function to analyze code for errors
+    // Analyze code for errors
     function analyzeCode() {
         const code = codeInput.value;
         errorList.innerHTML = '';
         let errors = [];
-
-        // Try to eval the code to catch syntax errors
+        let lineCount = 1;
+        let errorsFound = false;
+        
+        // First check for JavaScript syntax errors
         try {
             new Function(code);
         } catch (e) {
-            errors.push({
-                message: e.message,
-                severity: 'error',
-                line: getErrorLine(e),
-                fix: null
-            });
+            errorsFound = true;
+            const errorItem = document.createElement('div');
+            errorItem.className = 'error-item';
+            errorItem.innerHTML = `
+                <i class="fas fa-times-circle error-icon"></i>
+                <div class="error-message">
+                    Syntax Error: ${e.message}
+                </div>
+            `;
+            errorList.appendChild(errorItem);
         }
-
+        
         // Check for common errors using regex patterns
-        commonErrors.forEach(errorType => {
-            let match;
-            const pattern = errorType.pattern;
+        errorPatterns.forEach(pattern => {
+            const regex = pattern.regex;
+            regex.lastIndex = 0; // Reset regex
             
-            while ((match = pattern.exec(code)) !== null) {
-                const matchText = match[0];
-                const lineNumber = getLineNumber(code, match.index);
+            let match;
+            while ((match = regex.exec(code)) !== null) {
+                errorsFound = true;
                 
-                // If there's a check function, use it to confirm this is an error
-                if (!errorType.check || errorType.check(matchText, code)) {
-                    errors.push({
-                        match: matchText,
-                        index: match.index,
-                        message: errorType.message,
-                        severity: errorType.severity || 'error',
-                        line: lineNumber,
-                        fix: errorType.fix,
-                        pattern: pattern
-                    });
-                }
+                // Get line number
+                const upToError = code.substring(0, match.index);
+                const lineNumber = upToError.split('\n').length;
+                
+                // Create the error item
+                const errorItem = document.createElement('div');
+                errorItem.className = 'error-item';
+                errorItem.innerHTML = `
+                    <i class="fas fa-exclamation-triangle warning-icon"></i>
+                    <div class="error-message">
+                        ${pattern.message}
+                        <span class="error-location">line ${lineNumber}</span>
+                    </div>
+                `;
+                
+                errorList.appendChild(errorItem);
+                
+                // Add to errors array for fixing
+                errors.push({
+                    pattern: pattern,
+                    match: match[0],
+                    index: match.index,
+                    length: match[0].length
+                });
             }
         });
-
-        // Display errors in the UI
-        displayErrors(errors);
+        
+        // If no errors found, show success message
+        if (!errorsFound) {
+            errorList.innerHTML = '<div class="error-item"><i class="fas fa-check-circle" style="color: var(--success-color);"></i> <div class="error-message">No issues found!</div></div>';
+        }
         
         return errors;
     }
-
-    // Function to fix code based on detected errors
+    
+    // Fix the code with detected errors
     function fixCode(errors) {
-        let fixedText = codeInput.value;
+        let code = codeInput.value;
         let offset = 0;
         
         // Sort errors by their position in the code (from end to start)
-        // This prevents offsets from changing as we make replacements
         errors.sort((a, b) => b.index - a.index);
         
         // Apply fixes
         errors.forEach(error => {
-            if (error.fix) {
+            if (error.pattern.fix) {
                 const originalText = error.match;
-                let replacement;
+                let fixedText = error.pattern.fix(originalText);
                 
-                if (typeof error.fix === 'function') {
-                    replacement = error.fix(originalText);
-                } else {
-                    replacement = error.fix;
-                }
+                const startPos = error.index;
+                const endPos = startPos + originalText.length;
                 
-                if (replacement && replacement !== originalText) {
-                    const startPos = error.index;
-                    const endPos = startPos + originalText.length;
-                    fixedText = fixedText.substring(0, startPos) + 
-                                replacement + 
-                                fixedText.substring(endPos);
-                }
+                code = code.substring(0, startPos) + 
+                       fixedText + 
+                       code.substring(endPos);
             }
         });
         
-        return fixedText;
+        return code;
     }
-
-    // Helper function to get line number from character index
-    function getLineNumber(text, index) {
-        const lines = text.substring(0, index).split('\n');
-        return lines.length;
-    }
-
-    // Try to extract line number from error message
-    function getErrorLine(error) {
-        const lineMatch = error.stack.match(/line\s+(\d+)/i);
-        return lineMatch ? parseInt(lineMatch[1]) : null;
-    }
-
-    // Display errors in the UI
-    function displayErrors(errors) {
-        if (errors.length === 0) {
-            errorList.innerHTML = '<div class="success-message"><i class="fas fa-check-circle"></i> No errors found!</div>';
-            return;
-        }
-        
-        errors.forEach(error => {
-            const errorItem = document.createElement('div');
-            errorItem.className = 'error-item';
-            
-            const iconClass = error.severity === 'warning' ? 'fas fa-exclamation-triangle warning-icon' : 'fas fa-times-circle error-icon';
-            
-            errorItem.innerHTML = `
-                <i class="${iconClass}"></i>
-                <div class="error-message">
-                    ${error.message}
-                    ${error.line ? `<span class="error-location">line ${error.line}</span>` : ''}
-                </div>
-            `;
-            
-            errorList.appendChild(errorItem);
-        });
-    }
-
-    // Show the fixed code in the modal
-    function showFixedCode(code) {
-        fixedCode.textContent = code;
-        hljs.highlightElement(fixedCode);
-        resultModal.style.display = 'block';
-    }
-
-    // Event listeners
-    analyzeBtn.addEventListener('click', () => {
+    
+    // Event handlers
+    analyzeBtn.addEventListener('click', function() {
         analyzeCode();
     });
-
-    fixBtn.addEventListener('click', () => {
+    
+    fixBtn.addEventListener('click', function() {
         const errors = analyzeCode();
         if (errors.length > 0) {
             const fixedCode = fixCode(errors);
-            showFixedCode(fixedCode);
+            fixedCodeElement.textContent = fixedCode;
+            hljs.highlightElement(fixedCodeElement);
+            resultModal.style.display = 'block';
         } else {
-            showFixedCode(codeInput.value);
+            fixedCodeElement.textContent = codeInput.value;
+            hljs.highlightElement(fixedCodeElement);
+            resultModal.style.display = 'block';
         }
     });
-
-    copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(fixedCode.textContent)
+    
+    copyBtn.addEventListener('click', function() {
+        navigator.clipboard.writeText(fixedCodeElement.textContent)
             .then(() => {
                 copyBtn.textContent = 'Copied!';
                 setTimeout(() => {
                     copyBtn.textContent = 'Copy Code';
                 }, 2000);
-            })
-            .catch(err => {
-                console.error('Failed to copy: ', err);
             });
     });
-
-    closeModalBtn.addEventListener('click', () => {
+    
+    closeModalBtn.addEventListener('click', function() {
         resultModal.style.display = 'none';
     });
-
-    closeModalX.addEventListener('click', () => {
+    
+    closeModalX.addEventListener('click', function() {
         resultModal.style.display = 'none';
     });
-
-    // Close the modal when clicking outside of it
-    window.addEventListener('click', (event) => {
+    
+    window.addEventListener('click', function(event) {
         if (event.target === resultModal) {
             resultModal.style.display = 'none';
         }
     });
+    
+    // Initialize with some sample code to demonstrate
+    codeInput.value = `// Try this code with errors
+function sayHello() {
+  console.log("Hello world"
+  const x = 5
+  x = 10
+  docuemnt.getElementById("test").innerHtml = "Updated"
+}`;
 });
